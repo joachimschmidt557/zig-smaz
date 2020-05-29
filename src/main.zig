@@ -82,8 +82,6 @@ pub fn compress(in_stream: var, out_stream: var) !void {
     try flushVerbatim(out_stream, verb[0..verb_len]);
 }
 
-test "compress" {}
-
 pub fn decompress(in_stream: var, out_stream: var) !void {
     while (true) {
         const c = in_stream.readByte() catch |err| switch (err) {
@@ -117,8 +115,6 @@ pub fn decompress(in_stream: var, out_stream: var) !void {
     }
 }
 
-test "decompress" {}
-
 test "compress and decompress examples" {
     const strings = [_][]const u8{
         "This is a small string",
@@ -150,6 +146,41 @@ test "compress and decompress examples" {
 
         var decompress_in_stream = std.io.fixedBufferStream(compressed);
         var decompress_buf: [1024]u8 = undefined;
+        var decompress_out_stream = std.io.fixedBufferStream(&decompress_buf);
+
+        try decompress(decompress_in_stream.inStream(), decompress_out_stream.outStream());
+        const decompressed = decompress_out_stream.getWritten();
+
+        testing.expectEqualSlices(u8, str, decompressed);
+    }
+}
+
+test "fuzzy testing" {
+    var rand_buf: [8]u8 = undefined;
+    try std.crypto.randomBytes(rand_buf[0..]);
+    const seed = std.mem.readIntLittle(u64, rand_buf[0..8]);
+
+    var r = std.rand.DefaultPrng.init(seed);
+
+    const n = 1000;
+    const max_len = 1000;
+    var buf: [max_len]u8 = undefined;
+
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const len = r.random.uintLessThan(usize, max_len);
+        for (buf[0..len]) |*x| x.* = r.random.int(u8);
+        const str = buf[0..len];
+
+        var compress_in_stream = std.io.fixedBufferStream(str);
+        var compress_buf: [4096]u8 = undefined;
+        var compress_out_stream = std.io.fixedBufferStream(&compress_buf);
+
+        try compress(compress_in_stream.inStream(), compress_out_stream.outStream());
+        const compressed = compress_out_stream.getWritten();
+
+        var decompress_in_stream = std.io.fixedBufferStream(compressed);
+        var decompress_buf: [4096]u8 = undefined;
         var decompress_out_stream = std.io.fixedBufferStream(&decompress_buf);
 
         try decompress(decompress_in_stream.inStream(), decompress_out_stream.outStream());
