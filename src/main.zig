@@ -1,4 +1,5 @@
 const std = @import("std");
+const ComptimeStringMap = std.ComptimeStringMap;
 const testing = std.testing;
 
 /// Reverse compression codebook, used for decompression
@@ -24,7 +25,22 @@ const smaz_rcb = [_][]const u8{
     "men",    ".com",
 };
 
-const smaz_cb = [_][]const u8{""} ** 256;
+const smaz_cb_kvs = comptime blk: {
+    const KV = struct {
+        @"0": []const u8,
+        @"1": u8,
+    };
+    var result: []const KV = &[_]KV{};
+    for (smaz_rcb) |s, i| {
+        result = result ++ &[_]KV{KV{ .@"0" = s, .@"1" = i }};
+    }
+    break :blk result;
+};
+
+const smaz_cb = comptime blk: {
+    @setEvalBranchQuota(10000);
+    break :blk ComptimeStringMap(u8, smaz_cb_kvs);
+};
 
 pub fn flushVerbatim(out_stream: var, verb: []const u8) !void {
     if (verb.len == 0) {
@@ -44,21 +60,20 @@ pub fn compress(in_stream: var, out_stream: var) !void {
     var buf: [7]u8 = undefined;
     var amt = try in_stream.read(&buf);
     while (amt > 0) {
-        search: for (smaz_rcb) |str, i| {
-            if (amt >= str.len) {
-                if (std.mem.eql(u8, buf[0..str.len], str)) {
-                    // Match found, flush verbatim buffer
-                    try flushVerbatim(out_stream, verb[0..verb_len]);
-                    verb_len = 0;
+        var len = amt;
+        search: while (len > 1) : (len -= 1) {
+            if (smaz_cb.get(buf[0..len])) |i| {
+                // Match found, flush verbatim buffer
+                try flushVerbatim(out_stream, verb[0..verb_len]);
+                verb_len = 0;
 
-                    // Print
-                    try out_stream.writeByte(@intCast(u8, i));
+                // Print
+                try out_stream.writeByte(@intCast(u8, i));
 
-                    // Advance buffer
-                    std.mem.copy(u8, buf[0 .. amt - str.len], buf[str.len..amt]);
-                    amt -= str.len;
-                    break :search;
-                }
+                // Advance buffer
+                std.mem.copy(u8, buf[0 .. amt - len], buf[len..amt]);
+                amt -= len;
+                break :search;
             }
         } else {
             if (verb_len < verb.len) {
@@ -103,7 +118,7 @@ pub fn decompress(in_stream: var, out_stream: var) !void {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
-                const len = b + 1;
+                const len = @intCast(usize, b) + 1;
 
                 const amt = try in_stream.readAll(buf[0..len]);
                 if (amt < len) return;
