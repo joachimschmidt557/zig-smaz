@@ -42,33 +42,33 @@ const smaz_cb = comptime blk: {
     break :blk ComptimeStringMap(u8, smaz_cb_kvs);
 };
 
-pub fn flushVerbatim(out_stream: var, verb: []const u8) !void {
+pub fn flushVerbatim(writer: var, verb: []const u8) !void {
     if (verb.len == 0) {
         return;
     } else if (verb.len == 1) {
-        try out_stream.writeByte(254);
+        try writer.writeByte(254);
     } else {
-        try out_stream.writeAll(&[_]u8{ 255, @intCast(u8, verb.len - 1) });
+        try writer.writeAll(&[_]u8{ 255, @intCast(u8, verb.len - 1) });
     }
-    try out_stream.writeAll(verb);
+    try writer.writeAll(verb);
 }
 
-pub fn compress(in_stream: var, out_stream: var) !void {
+pub fn compress(reader: var, writer: var) !void {
     var verb: [256]u8 = undefined;
     var verb_len: usize = 0;
 
     var buf: [7]u8 = undefined;
-    var amt = try in_stream.read(&buf);
+    var amt = try reader.read(&buf);
     while (amt > 0) {
         var len = amt;
         search: while (len > 1) : (len -= 1) {
             if (smaz_cb.get(buf[0..len])) |i| {
                 // Match found, flush verbatim buffer
-                try flushVerbatim(out_stream, verb[0..verb_len]);
+                try flushVerbatim(writer, verb[0..verb_len]);
                 verb_len = 0;
 
                 // Print
-                try out_stream.writeByte(@intCast(u8, i));
+                try writer.writeByte(@intCast(u8, i));
 
                 // Advance buffer
                 std.mem.copy(u8, buf[0 .. amt - len], buf[len..amt]);
@@ -80,7 +80,7 @@ pub fn compress(in_stream: var, out_stream: var) !void {
                 verb[verb_len] = buf[0];
                 verb_len += 1;
             } else {
-                try flushVerbatim(out_stream, &verb);
+                try flushVerbatim(writer, &verb);
                 verb[0] = buf[0];
                 verb_len = 1;
             }
@@ -90,42 +90,42 @@ pub fn compress(in_stream: var, out_stream: var) !void {
         }
 
         // Try to fill up buffer
-        amt += try in_stream.read(buf[amt..]);
+        amt += try reader.read(buf[amt..]);
     }
 
     // Flush verbatim buffer
-    try flushVerbatim(out_stream, verb[0..verb_len]);
+    try flushVerbatim(writer, verb[0..verb_len]);
 }
 
-pub fn decompress(in_stream: var, out_stream: var) !void {
+pub fn decompress(reader: var, writer: var) !void {
     while (true) {
-        const c = in_stream.readByte() catch |err| switch (err) {
+        const c = reader.readByte() catch |err| switch (err) {
             error.EndOfStream => return,
             else => |e| return e,
         };
 
         switch (c) {
             254 => {
-                const byte = in_stream.readByte() catch |err| switch (err) {
+                const byte = reader.readByte() catch |err| switch (err) {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
-                try out_stream.writeByte(byte);
+                try writer.writeByte(byte);
             },
             255 => {
                 var buf: [256]u8 = undefined;
-                const b = in_stream.readByte() catch |err| switch (err) {
+                const b = reader.readByte() catch |err| switch (err) {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
                 const len = @intCast(usize, b) + 1;
 
-                const amt = try in_stream.readAll(buf[0..len]);
+                const amt = try reader.readAll(buf[0..len]);
                 if (amt < len) return;
 
-                try out_stream.writeAll(buf[0..len]);
+                try writer.writeAll(buf[0..len]);
             },
-            else => try out_stream.writeAll(smaz_rcb[c]),
+            else => try writer.writeAll(smaz_rcb[c]),
         }
     }
 }
@@ -152,19 +152,19 @@ test "compress and decompress examples" {
     };
 
     for (strings) |str| {
-        var compress_in_stream = std.io.fixedBufferStream(str);
+        var compress_reader = std.io.fixedBufferStream(str);
         var compress_buf: [1024]u8 = undefined;
-        var compress_out_stream = std.io.fixedBufferStream(&compress_buf);
+        var compress_writer = std.io.fixedBufferStream(&compress_buf);
 
-        try compress(compress_in_stream.inStream(), compress_out_stream.outStream());
-        const compressed = compress_out_stream.getWritten();
+        try compress(compress_reader.reader(), compress_writer.writer());
+        const compressed = compress_writer.getWritten();
 
-        var decompress_in_stream = std.io.fixedBufferStream(compressed);
+        var decompress_reader = std.io.fixedBufferStream(compressed);
         var decompress_buf: [1024]u8 = undefined;
-        var decompress_out_stream = std.io.fixedBufferStream(&decompress_buf);
+        var decompress_writer = std.io.fixedBufferStream(&decompress_buf);
 
-        try decompress(decompress_in_stream.inStream(), decompress_out_stream.outStream());
-        const decompressed = decompress_out_stream.getWritten();
+        try decompress(decompress_reader.reader(), decompress_writer.writer());
+        const decompressed = decompress_writer.getWritten();
 
         testing.expectEqualSlices(u8, str, decompressed);
     }
@@ -187,19 +187,19 @@ test "fuzzy testing" {
         for (buf[0..len]) |*x| x.* = r.random.int(u8);
         const str = buf[0..len];
 
-        var compress_in_stream = std.io.fixedBufferStream(str);
+        var compress_reader = std.io.fixedBufferStream(str);
         var compress_buf: [4096]u8 = undefined;
-        var compress_out_stream = std.io.fixedBufferStream(&compress_buf);
+        var compress_writer = std.io.fixedBufferStream(&compress_buf);
 
-        try compress(compress_in_stream.inStream(), compress_out_stream.outStream());
-        const compressed = compress_out_stream.getWritten();
+        try compress(compress_reader.reader(), compress_writer.writer());
+        const compressed = compress_writer.getWritten();
 
-        var decompress_in_stream = std.io.fixedBufferStream(compressed);
+        var decompress_reader = std.io.fixedBufferStream(compressed);
         var decompress_buf: [4096]u8 = undefined;
-        var decompress_out_stream = std.io.fixedBufferStream(&decompress_buf);
+        var decompress_writer = std.io.fixedBufferStream(&decompress_buf);
 
-        try decompress(decompress_in_stream.inStream(), decompress_out_stream.outStream());
-        const decompressed = decompress_out_stream.getWritten();
+        try decompress(decompress_reader.reader(), decompress_writer.writer());
+        const decompressed = decompress_writer.getWritten();
 
         testing.expectEqualSlices(u8, str, decompressed);
     }
