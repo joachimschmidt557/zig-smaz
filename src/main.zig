@@ -42,7 +42,7 @@ const smaz_cb = comptime blk: {
     break :blk ComptimeStringMap(u8, smaz_cb_kvs);
 };
 
-pub fn flushVerbatim(writer: var, verb: []const u8) !void {
+inline fn flushVerbatim(writer: var, verb: []const u8) !void {
     if (verb.len == 0) {
         return;
     } else if (verb.len == 1) {
@@ -131,26 +131,7 @@ pub fn decompress(reader: var, writer: var) !void {
 }
 
 test "compress and decompress examples" {
-    const strings = [_][]const u8{
-        "This is a small string",
-        "foobar",
-        "the end",
-        "not-a-g00d-Exampl333",
-        "Smaz is a simple compression library",
-        "Nothing is more difficult, and therefore more precious, than to be able to decide",
-        "this is an example of what works very well with smaz",
-        "1000 numbers 2000 will 10 20 30 compress very little",
-        "and now a few italian sentences:",
-        "Nel mezzo del cammin di nostra vita, mi ritrovai in una selva oscura",
-        "Mi illumino di immenso",
-        "L'autore di questa libreria vive in Sicilia",
-        "try it against urls",
-        "http://google.com",
-        "http://programming.reddit.com",
-        "http://github.com/antirez/smaz/tree/master",
-        "/media/hdb1/music/Alben/The Bla",
-    };
-
+    const strings = @import("examples.zig").examples;
     for (strings) |str| {
         var compress_reader = std.io.fixedBufferStream(str);
         var compress_buf: [1024]u8 = undefined;
