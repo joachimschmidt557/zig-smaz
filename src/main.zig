@@ -1,5 +1,5 @@
 const std = @import("std");
-const ComptimeStringMap = std.ComptimeStringMap;
+const ComptimeStringHashMap = @import("comptime_hash_map/comptime_hash_map.zig").ComptimeStringHashMap;
 const testing = std.testing;
 
 /// Reverse compression codebook, used for decompression
@@ -39,7 +39,7 @@ const smaz_cb_kvs = comptime blk: {
 
 const smaz_cb = comptime blk: {
     @setEvalBranchQuota(10000);
-    break :blk ComptimeStringMap(u8, smaz_cb_kvs);
+    break :blk ComptimeStringHashMap(u8, smaz_cb_kvs);
 };
 
 inline fn flushVerbatim(writer: var, verb: []const u8) !void {
@@ -61,14 +61,14 @@ pub fn compress(reader: var, writer: var) !void {
     var amt = try reader.read(&buf);
     while (amt > 0) {
         var len = amt;
-        search: while (len > 1) : (len -= 1) {
+        search: while (len > 0) : (len -= 1) {
             if (smaz_cb.get(buf[0..len])) |i| {
                 // Match found, flush verbatim buffer
                 try flushVerbatim(writer, verb[0..verb_len]);
                 verb_len = 0;
 
                 // Print
-                try writer.writeByte(@intCast(u8, i));
+                try writer.writeByte(@intCast(u8, i.*));
 
                 // Advance buffer
                 std.mem.copy(u8, buf[0 .. amt - len], buf[len..amt]);

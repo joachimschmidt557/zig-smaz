@@ -63,6 +63,7 @@ fn benchmark(comptime f: fn () anyerror!usize) !u64 {
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
 
+    std.debug.print("bytes: {}\n", .{bytes});
     return throughput;
 }
 
@@ -72,6 +73,6 @@ pub fn main() !void {
     const throughput_compression = try benchmark(compress);
     const throughput_decompression = try benchmark(decompress);
 
-    try stdout.print("compression throughput: {} KiB/s\n", .{throughput_compression / KiB});
+    try stdout.print("compression throughput: {} MiB/s\n", .{throughput_compression / MiB});
     try stdout.print("decompression throughput: {} MiB/s\n", .{throughput_decompression / MiB});
 }
