@@ -42,7 +42,7 @@ const smaz_cb = comptime blk: {
     break :blk ComptimeStringHashMap(u8, smaz_cb_kvs);
 };
 
-inline fn flushVerbatim(writer: var, verb: []const u8) !void {
+inline fn flushVerbatim(writer: anytype, verb: []const u8) !void {
     if (verb.len == 0) {
         return;
     } else if (verb.len == 1) {
@@ -53,7 +53,7 @@ inline fn flushVerbatim(writer: var, verb: []const u8) !void {
     try writer.writeAll(verb);
 }
 
-pub fn compress(reader: var, writer: var) !void {
+pub fn compress(reader: anytype, writer: anytype) !void {
     var verb: [256]u8 = undefined;
     var verb_len: usize = 0;
 
@@ -97,7 +97,7 @@ pub fn compress(reader: var, writer: var) !void {
     try flushVerbatim(writer, verb[0..verb_len]);
 }
 
-pub fn decompress(reader: var, writer: var) !void {
+pub fn decompress(reader: anytype, writer: anytype) !void {
     while (true) {
         const c = reader.readByte() catch |err| switch (err) {
             error.EndOfStream => return,
