@@ -42,7 +42,7 @@ const smaz_cb = comptime blk: {
     break :blk ComptimeStringHashMap(u8, smaz_cb_kvs);
 };
 
-inline fn flushVerbatim(writer: anytype, verb: []const u8) !void {
+fn flushVerbatim(writer: anytype, verb: []const u8) callconv(.Inline) !void {
     if (verb.len == 0) {
         return;
     } else if (verb.len == 1) {

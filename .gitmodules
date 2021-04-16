@@ -1,0 +1,3 @@
+[submodule "src/comptime_hash_map"]
+	path = src/comptime_hash_map
+	url = https://github.com/Vexu/comptime_hash_map
