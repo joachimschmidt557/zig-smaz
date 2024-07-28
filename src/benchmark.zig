@@ -8,13 +8,13 @@ const examples = @import("examples.zig").examples;
 const KiB = 1024;
 const MiB = 1024 * KiB;
 
-inline fn compress() !usize {
+fn compress() !usize {
     const iterations = 10000;
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
         for (examples) |str| {
             var compress_reader = std.io.fixedBufferStream(str);
-            var compress_writer = std.io.null_writer;
+            const compress_writer = std.io.null_writer;
 
             try smaz.compress(compress_reader.reader(), compress_writer);
         }
@@ -25,17 +25,17 @@ inline fn compress() !usize {
     return sum * iterations;
 }
 
-inline fn decompress() !usize {
+fn decompress() !usize {
     var compress_buffers = [_][1024]u8{undefined} ** examples.len;
     var compressed = [_][]const u8{&[_]u8{}} ** examples.len;
 
-    for (examples) |str, i| {
+    for (examples, &compress_buffers, &compressed) |str, *buf, *out| {
         var compress_reader = std.io.fixedBufferStream(str);
-        var compress_writer = std.io.fixedBufferStream(&compress_buffers[i]);
+        var compress_writer = std.io.fixedBufferStream(buf);
 
         try smaz.compress(compress_reader.reader(), compress_writer.writer());
 
-        compressed[i] = compress_writer.getWritten();
+        out.* = compress_writer.getWritten();
     }
 
     const iterations = 10000;
@@ -43,7 +43,7 @@ inline fn decompress() !usize {
     while (i < iterations) : (i += 1) {
         for (compressed) |str| {
             var decompress_reader = std.io.fixedBufferStream(str);
-            var decompress_writer = std.io.null_writer;
+            const decompress_writer = std.io.null_writer;
 
             try smaz.decompress(decompress_reader.reader(), decompress_writer);
         }
@@ -60,8 +60,8 @@ fn benchmark(comptime f: fn () anyerror!usize) !u64 {
     const bytes = try f();
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
 
     std.debug.print("bytes: {}\n", .{bytes});
     return throughput;

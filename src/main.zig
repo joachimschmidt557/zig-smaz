@@ -1,5 +1,5 @@
 const std = @import("std");
-const ComptimeStringHashMap = @import("comptime_hash_map/comptime_hash_map.zig").ComptimeStringHashMap;
+const StaticStringMap = std.StaticStringMap;
 const testing = std.testing;
 
 /// Reverse compression codebook, used for decompression
@@ -25,21 +25,21 @@ const smaz_rcb = [_][]const u8{
     "men",    ".com",
 };
 
-const smaz_cb_kvs = comptime blk: {
+const smaz_cb_kvs = blk: {
     const KV = struct {
         @"0": []const u8,
         @"1": u8,
     };
     var result: []const KV = &[_]KV{};
-    for (smaz_rcb) |s, i| {
+    for (smaz_rcb, 0..) |s, i| {
         result = result ++ &[_]KV{KV{ .@"0" = s, .@"1" = i }};
     }
     break :blk result;
 };
 
-const smaz_cb = comptime blk: {
+const smaz_cb = blk: {
     @setEvalBranchQuota(10000);
-    break :blk ComptimeStringHashMap(u8, smaz_cb_kvs);
+    break :blk StaticStringMap(u8).initComptime(smaz_cb_kvs);
 };
 
 fn flushVerbatim(writer: anytype, verb: []const u8) callconv(.Inline) !void {
@@ -48,7 +48,7 @@ fn flushVerbatim(writer: anytype, verb: []const u8) callconv(.Inline) !void {
     } else if (verb.len == 1) {
         try writer.writeByte(254);
     } else {
-        try writer.writeAll(&[_]u8{ 255, @intCast(u8, verb.len - 1) });
+        try writer.writeAll(&[_]u8{ 255, @intCast(verb.len - 1) });
     }
     try writer.writeAll(verb);
 }
@@ -68,10 +68,10 @@ pub fn compress(reader: anytype, writer: anytype) !void {
                 verb_len = 0;
 
                 // Print
-                try writer.writeByte(@intCast(u8, i.*));
+                try writer.writeByte(@intCast(i));
 
                 // Advance buffer
-                std.mem.copy(u8, buf[0 .. amt - len], buf[len..amt]);
+                std.mem.copyForwards(u8, buf[0 .. amt - len], buf[len..amt]);
                 amt -= len;
                 break :search;
             }
@@ -85,7 +85,7 @@ pub fn compress(reader: anytype, writer: anytype) !void {
                 verb_len = 1;
             }
 
-            std.mem.copy(u8, buf[0 .. amt - 1], buf[1..amt]);
+            std.mem.copyForwards(u8, buf[0 .. amt - 1], buf[1..amt]);
             amt -= 1;
         }
 
@@ -118,7 +118,7 @@ pub fn decompress(reader: anytype, writer: anytype) !void {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
-                const len = @intCast(usize, b) + 1;
+                const len = @as(usize, @intCast(b)) + 1;
 
                 const amt = try reader.readAll(buf[0..len]);
                 if (amt < len) return;
@@ -147,14 +147,14 @@ test "compress and decompress examples" {
         try decompress(decompress_reader.reader(), decompress_writer.writer());
         const decompressed = decompress_writer.getWritten();
 
-        testing.expectEqualSlices(u8, str, decompressed);
+        try testing.expectEqualSlices(u8, str, decompressed);
     }
 }
 
 test "fuzzy testing" {
     var rand_buf: [8]u8 = undefined;
-    try std.crypto.randomBytes(rand_buf[0..]);
-    const seed = std.mem.readIntLittle(u64, rand_buf[0..8]);
+    std.crypto.random.bytes(rand_buf[0..]);
+    const seed: u64 = @bitCast(rand_buf);
 
     var r = std.rand.DefaultPrng.init(seed);
 
@@ -164,8 +164,8 @@ test "fuzzy testing" {
 
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        const len = r.random.uintLessThan(usize, max_len);
-        for (buf[0..len]) |*x| x.* = r.random.int(u8);
+        const len = r.random().uintLessThan(usize, max_len);
+        for (buf[0..len]) |*x| x.* = r.random().int(u8);
         const str = buf[0..len];
 
         var compress_reader = std.io.fixedBufferStream(str);
@@ -182,6 +182,6 @@ test "fuzzy testing" {
         try decompress(decompress_reader.reader(), decompress_writer.writer());
         const decompressed = decompress_writer.getWritten();
 
-        testing.expectEqualSlices(u8, str, decompressed);
+        try testing.expectEqualSlices(u8, str, decompressed);
     }
 }
