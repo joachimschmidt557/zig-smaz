@@ -4,16 +4,11 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "smaz",
+    _ = b.addModule("smaz", .{
         .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
     });
-    b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
-        .name = "main-tests",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
