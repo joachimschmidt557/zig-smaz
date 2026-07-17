@@ -1,0 +1,12 @@
+.{
+    .name = .smaz,
+    .fingerprint = 0xd4f74ad91f5e4574,
+    .version = "0.1.0",
+    .paths = .{
+        "LICENSE",
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "src/",
+    },
+}

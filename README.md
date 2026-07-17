@@ -2,4 +2,4 @@
 
 Port of the [smaz string compression algorithm](https://github.com/antirez/smaz) to [zig](https://ziglang.org)
 
-Works with Zig 0.13.0
+Works with Zig 0.16.0

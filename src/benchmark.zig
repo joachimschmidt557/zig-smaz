@@ -1,22 +1,24 @@
 const std = @import("std");
 const time = std.time;
-const Timer = time.Timer;
+const Io = std.Io;
 
-const smaz = @import("main.zig");
-const examples = @import("examples.zig").examples;
+const smaz = @import("smaz");
+const examples = smaz.example_strings;
 
 const KiB = 1024;
 const MiB = 1024 * KiB;
 
 fn compress() !usize {
     const iterations = 10000;
-    var i: usize = 0;
-    while (i < iterations) : (i += 1) {
-        for (examples) |str| {
-            var compress_reader = std.io.fixedBufferStream(str);
-            const compress_writer = std.io.null_writer;
 
-            try smaz.compress(compress_reader.reader(), compress_writer);
+    var discarding_buf: [4096]u8 = undefined;
+
+    for (0..iterations) |_| {
+        for (examples) |str| {
+            var compress_reader: Io.Reader = .fixed(str);
+            var compress_writer: Io.Writer.Discarding = .init(&discarding_buf);
+
+            try smaz.compress(&compress_reader, &compress_writer.writer);
         }
     }
 
@@ -30,22 +32,23 @@ fn decompress() !usize {
     var compressed = [_][]const u8{&[_]u8{}} ** examples.len;
 
     for (examples, &compress_buffers, &compressed) |str, *buf, *out| {
-        var compress_reader = std.io.fixedBufferStream(str);
-        var compress_writer = std.io.fixedBufferStream(buf);
+        var compress_reader: Io.Reader = .fixed(str);
+        var compress_writer: Io.Writer = .fixed(buf);
 
-        try smaz.compress(compress_reader.reader(), compress_writer.writer());
+        try smaz.compress(&compress_reader, &compress_writer);
 
-        out.* = compress_writer.getWritten();
+        out.* = compress_writer.buffered();
     }
 
-    const iterations = 10000;
-    var i: usize = 0;
-    while (i < iterations) : (i += 1) {
-        for (compressed) |str| {
-            var decompress_reader = std.io.fixedBufferStream(str);
-            const decompress_writer = std.io.null_writer;
+    var discarding_buf: [4096]u8 = undefined;
 
-            try smaz.decompress(decompress_reader.reader(), decompress_writer);
+    const iterations = 10000;
+    for (0..iterations) |_| {
+        for (compressed) |str| {
+            var decompress_reader: Io.Reader = .fixed(str);
+            var decompress_writer: Io.Writer.Discarding = .init(&discarding_buf);
+
+            try smaz.decompress(&decompress_reader, &decompress_writer.writer);
         }
     }
 
@@ -54,25 +57,30 @@ fn decompress() !usize {
     return sum * iterations;
 }
 
-fn benchmark(comptime f: fn () anyerror!usize) !u64 {
-    var timer = try Timer.start();
-    const start = timer.lap();
+fn benchmark(comptime f: fn () anyerror!usize, io: Io) !u64 {
+    const start = Io.Timestamp.now(io, .real);
     const bytes = try f();
-    const end = timer.read();
+    const end = Io.Timestamp.now(io, .real);
 
-    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const elapsed_ns = start.durationTo(end).toNanoseconds();
+    const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
 
     std.debug.print("bytes: {}\n", .{bytes});
     return throughput;
 }
 
-pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
 
-    const throughput_compression = try benchmark(compress);
-    const throughput_decompression = try benchmark(decompress);
+    var buf: [4096]u8 = undefined;
+    var stdout = std.Io.File.stdout().writer(io, &buf);
 
-    try stdout.print("compression throughput: {} MiB/s\n", .{throughput_compression / MiB});
-    try stdout.print("decompression throughput: {} MiB/s\n", .{throughput_decompression / MiB});
+    const throughput_compression = try benchmark(compress, io);
+    const throughput_decompression = try benchmark(decompress, io);
+
+    try stdout.interface.print("compression throughput: {} MiB/s\n", .{throughput_compression / MiB});
+    try stdout.interface.print("decompression throughput: {} MiB/s\n", .{throughput_decompression / MiB});
+
+    try stdout.interface.flush();
 }

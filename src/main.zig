@@ -1,6 +1,27 @@
 const std = @import("std");
+const Io = std.Io;
 const StaticStringMap = std.StaticStringMap;
 const testing = std.testing;
+
+pub const example_strings = [_][]const u8{
+    "This is a small string",
+    "foobar",
+    "the end",
+    "not-a-g00d-Exampl333",
+    "Smaz is a simple compression library",
+    "Nothing is more difficult, and therefore more precious, than to be able to decide",
+    "this is an example of what works very well with smaz",
+    "1000 numbers 2000 will 10 20 30 compress very little",
+    "and now a few italian sentences:",
+    "Nel mezzo del cammin di nostra vita, mi ritrovai in una selva oscura",
+    "Mi illumino di immenso",
+    "L'autore di questa libreria vive in Sicilia",
+    "try it against urls",
+    "http://google.com",
+    "http://programming.reddit.com",
+    "http://github.com/antirez/smaz/tree/master",
+    "/media/hdb1/music/Alben/The Bla",
+};
 
 /// Reverse compression codebook, used for decompression
 const smaz_rcb = [_][]const u8{
@@ -42,7 +63,7 @@ const smaz_cb = blk: {
     break :blk StaticStringMap(u8).initComptime(smaz_cb_kvs);
 };
 
-fn flushVerbatim(writer: anytype, verb: []const u8) callconv(.Inline) !void {
+fn flushVerbatim(writer: *Io.Writer, verb: []const u8) callconv(.@"inline") !void {
     if (verb.len == 0) {
         return;
     } else if (verb.len == 1) {
@@ -53,12 +74,12 @@ fn flushVerbatim(writer: anytype, verb: []const u8) callconv(.Inline) !void {
     try writer.writeAll(verb);
 }
 
-pub fn compress(reader: anytype, writer: anytype) !void {
+pub fn compress(reader: *Io.Reader, writer: *Io.Writer) !void {
     var verb: [256]u8 = undefined;
     var verb_len: usize = 0;
 
     var buf: [7]u8 = undefined;
-    var amt = try reader.read(&buf);
+    var amt = try reader.readSliceShort(&buf);
     while (amt > 0) {
         var len = amt;
         search: while (len > 0) : (len -= 1) {
@@ -90,23 +111,23 @@ pub fn compress(reader: anytype, writer: anytype) !void {
         }
 
         // Try to fill up buffer
-        amt += try reader.read(buf[amt..]);
+        amt += try reader.readSliceShort(buf[amt..]);
     }
 
     // Flush verbatim buffer
     try flushVerbatim(writer, verb[0..verb_len]);
 }
 
-pub fn decompress(reader: anytype, writer: anytype) !void {
+pub fn decompress(reader: *Io.Reader, writer: *Io.Writer) !void {
     while (true) {
-        const c = reader.readByte() catch |err| switch (err) {
+        const c = reader.takeByte() catch |err| switch (err) {
             error.EndOfStream => return,
             else => |e| return e,
         };
 
         switch (c) {
             254 => {
-                const byte = reader.readByte() catch |err| switch (err) {
+                const byte = reader.takeByte() catch |err| switch (err) {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
@@ -114,13 +135,13 @@ pub fn decompress(reader: anytype, writer: anytype) !void {
             },
             255 => {
                 var buf: [256]u8 = undefined;
-                const b = reader.readByte() catch |err| switch (err) {
+                const b = reader.takeByte() catch |err| switch (err) {
                     error.EndOfStream => return,
                     else => |e| return e,
                 };
                 const len = @as(usize, @intCast(b)) + 1;
 
-                const amt = try reader.readAll(buf[0..len]);
+                const amt = try reader.readSliceShort(buf[0..len]);
                 if (amt < len) return;
 
                 try writer.writeAll(buf[0..len]);
@@ -131,56 +152,56 @@ pub fn decompress(reader: anytype, writer: anytype) !void {
 }
 
 test "compress and decompress examples" {
-    const strings = @import("examples.zig").examples;
-    for (strings) |str| {
-        var compress_reader = std.io.fixedBufferStream(str);
+    for (example_strings) |str| {
+        var compress_reader: Io.Reader = .fixed(str);
         var compress_buf: [1024]u8 = undefined;
-        var compress_writer = std.io.fixedBufferStream(&compress_buf);
+        var compress_writer: Io.Writer = .fixed(&compress_buf);
 
-        try compress(compress_reader.reader(), compress_writer.writer());
-        const compressed = compress_writer.getWritten();
+        try compress(&compress_reader, &compress_writer);
+        const compressed = compress_writer.buffered();
 
-        var decompress_reader = std.io.fixedBufferStream(compressed);
+        var decompress_reader: Io.Reader = .fixed(compressed);
         var decompress_buf: [1024]u8 = undefined;
-        var decompress_writer = std.io.fixedBufferStream(&decompress_buf);
+        var decompress_writer: Io.Writer = .fixed(&decompress_buf);
 
-        try decompress(decompress_reader.reader(), decompress_writer.writer());
-        const decompressed = decompress_writer.getWritten();
+        try decompress(&decompress_reader, &decompress_writer);
+        const decompressed = decompress_writer.buffered();
 
         try testing.expectEqualSlices(u8, str, decompressed);
     }
 }
 
 test "fuzzy testing" {
+    const io = std.testing.io;
+
     var rand_buf: [8]u8 = undefined;
-    std.crypto.random.bytes(rand_buf[0..]);
+    io.random(rand_buf[0..]);
     const seed: u64 = @bitCast(rand_buf);
 
-    var r = std.rand.DefaultPrng.init(seed);
+    var r = std.Random.DefaultPrng.init(seed);
 
     const n = 1000;
     const max_len = 1000;
     var buf: [max_len]u8 = undefined;
 
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
+    for (0..n) |_| {
         const len = r.random().uintLessThan(usize, max_len);
         for (buf[0..len]) |*x| x.* = r.random().int(u8);
         const str = buf[0..len];
 
-        var compress_reader = std.io.fixedBufferStream(str);
+        var compress_reader: Io.Reader = .fixed(str);
         var compress_buf: [4096]u8 = undefined;
-        var compress_writer = std.io.fixedBufferStream(&compress_buf);
+        var compress_writer: Io.Writer = .fixed(&compress_buf);
 
-        try compress(compress_reader.reader(), compress_writer.writer());
-        const compressed = compress_writer.getWritten();
+        try compress(&compress_reader, &compress_writer);
+        const compressed = compress_writer.buffered();
 
-        var decompress_reader = std.io.fixedBufferStream(compressed);
+        var decompress_reader: Io.Reader = .fixed(compressed);
         var decompress_buf: [4096]u8 = undefined;
-        var decompress_writer = std.io.fixedBufferStream(&decompress_buf);
+        var decompress_writer: Io.Writer = .fixed(&decompress_buf);
 
-        try decompress(decompress_reader.reader(), decompress_writer.writer());
-        const decompressed = decompress_writer.getWritten();
+        try decompress(&decompress_reader, &decompress_writer);
+        const decompressed = decompress_writer.buffered();
 
         try testing.expectEqualSlices(u8, str, decompressed);
     }
